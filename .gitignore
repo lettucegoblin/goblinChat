@@ -1,2 +1,4 @@
 opt-125m-4bit/
 __pycache__/
+exllama/
+AutoGPTQ/

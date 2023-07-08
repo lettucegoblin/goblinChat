@@ -15,13 +15,13 @@ extra_prune = 256
 
 class ExLlamaChatbot:
     #init
-    def __init__(self, model_name_or_path, model_basename, username, botname):
+    def __init__(self, model_name_or_path, model_basename, username, botname, past = ""):
         self.model_name_or_path = model_name_or_path
         self.model_basename = model_basename
         self.username = username
         self.bot_name = botname
         self.break_on_newline = False
-        self.past = ""
+        self.past = past
     def unload(self):
         
         self.model.unload()
@@ -50,13 +50,14 @@ class ExLlamaChatbot:
         self.generator.settings.top_p = 0.65
         self.generator.settings.top_k = 100
         self.generator.settings.typical = 0.5
+        ids = self.tokenizer.encode(self.past)
+        self.generator.gen_begin(ids)
 
     def generate_simple_exllama(self, context):
         output = self.generator.generate_simple(context, max_new_tokens = 200)
         return output[len(context):]
     def generate_exllama(self, context):
-        ids = self.tokenizer.encode(self.past)
-        self.generator.gen_begin(ids)
+        
         res_line = self.bot_name + ":"
         res_tokens = self.tokenizer.encode(res_line)
         num_res_tokens = res_tokens.shape[-1]  # Decode from here

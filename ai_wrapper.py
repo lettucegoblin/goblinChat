@@ -3,48 +3,36 @@ from auto_gptq import AutoGPTQForCausalLM, BaseQuantizeConfig
 import gc, torch, sys, os, glob
 from tinydb import TinyDB, Query
 from datetime import datetime
-sys.path.append('exllama')
-from exllama.model import ExLlama, ExLlamaCache, ExLlamaConfig
-from exllama.tokenizer import ExLlamaTokenizer
-from exllama.generator import ExLlamaGenerator
+#sys.path.append('exllama')
+#from exllama.model import ExLlama, ExLlamaCache, ExLlamaConfig
+#from exllama.tokenizer import ExLlamaTokenizer
+#from exllama.generator import ExLlamaGenerator
+from exllama_beamchat import ExLlamaChatbot
 
 # Locate files we need within that directory
 
+botName = "Goblin"
 
-
-#describe a cute goblin character who is curious about the world and likes to explore
-character_context = '''The following is a conversation between User and Goblin. Goblin is curious about the world and loves explaining.\n'''
 class Ai_Wrapper:
     def __init__(self, model_name_or_path, model_basename, tokenizerName):
         self.model_name_or_path = model_name_or_path
         self.model_basename = model_basename
         self.memory = TinyDB('memory.json')
         self.tokenizerName = tokenizerName  
+        self.modelIsLoaded = False
+        self.character_context = '''The following is a conversation between User and Goblin. Goblin is curious about the world and loves explaining.\n'''
               
         pass
-    def load_exllama(self):
-        tokenizer_path = os.path.join(self.model_name_or_path, "tokenizer.model")
-        model_config_path = os.path.join(self.model_name_or_path, "config.json")
-        st_pattern = os.path.join(self.model_name_or_path, "*.safetensors")
-        model_path = glob.glob(st_pattern)[0]
-        self.tokenizer = ExLlamaTokenizer(tokenizer_path)            # create tokenizer from tokenizer model file
-        self.config = ExLlamaConfig(model_config_path)               # create config from config.json
-        self.config.model_path = model_path                          # supply path to model weights file    
-        self.model = ExLlama(self.config)                            # create ExLlama instance and load the weights
-        self.tokenizer = ExLlamaTokenizer(tokenizer_path)            # create tokenizer from tokenizer model file
-
-        self.cache = ExLlamaCache(self.model)                             # create cache for inference
-        self.generator = ExLlamaGenerator(self.model, self.tokenizer, self.cache)   # create generator
-
-        # Configure generator
-
-        self.generator.disallow_tokens([self.tokenizer.eos_token_id])
-
-        self.generator.settings.token_repetition_penalty_max = 1.2
-        self.generator.settings.temperature = 0.95
-        self.generator.settings.top_p = 0.65
-        self.generator.settings.top_k = 100
-        self.generator.settings.typical = 0.5
+    def load_exllama(self, past, _character_context = None):
+        if _character_context is not None:
+            self.character_context = _character_context
+            
+        print("Loading exllama", past)
+        self.exllama_chatbot = ExLlamaChatbot(self.model_name_or_path, self.model_basename, "User", "Goblin", self.character_context + past)
+        self.exllama_chatbot.load()
+        self.tokenizer = self.exllama_chatbot.tokenizer
+    def set_character_context(self, _character_context):
+        self.character_context = _character_context
     def load_autogptq(self):
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name_or_path, use_fast=True)
         self.model = AutoGPTQForCausalLM.from_quantized(self.model_name_or_path,
@@ -53,13 +41,16 @@ class Ai_Wrapper:
             quantize_config=None,
             use_safetensors=True, 
             use_triton=False)
-    def load(self, tokenizerName = None):
+    def load(self, tokenizerName = None, chat_id = None):
         if tokenizerName is not None:
             self.tokenizerName = tokenizerName
+        if tokenizerName == self.tokenizerName and self.modelIsLoaded:
+            return
         if tokenizerName == "exllama":
-            self.load_exllama()
+            self.load_exllama(self.get_memory(chat_id))
         elif tokenizerName == "autogptq":
             self.load_autogptq()
+        self.modelIsLoaded = True
     def generate(self, input_text, chat_id):
         if self.tokenizer is None:
             raise ValueError("Tokenizer not found")
@@ -69,8 +60,19 @@ class Ai_Wrapper:
 Goblin:'''
         context = self.create_context(prompt_template, chat_id)
         if self.tokenizerName == "exllama":
-            output_str = self.generate_exllama(input_text)
-        elif self.tokenizerName == "autogptq":
+            output_str = self.exllama_chatbot.generate_exllama(input_text)
+            #remove variable botName from beginning of output_str
+            output_str = output_str[len(botName) + 2:] # +2 for the colon and space
+            output_str = output_str.strip()
+            #toMemory = prompt_template + " " + output_str
+            #self.add_to_memory(toMemory, chat_id)
+            self.add_to_memory(f"User: {input_text}", chat_id) 
+            self.add_to_memory(f"Goblin: {output_str}", chat_id)
+
+            return output_str
+
+        
+        if self.tokenizerName == "autogptq":
             output_str = self.generate_autogptq(input_text)
         else:
             raise ValueError("Tokenizer not found")
@@ -126,9 +128,22 @@ Goblin:'''
         #while len(self.memory) > 2048 and self.memory.find("\n") != -1:
         #    self.memory = self.memory[self.memory.find("\n")+1:]
     def create_context(self, prompt_template, chat_id):
-        tokens = 2048 - len(prompt_template) - len(character_context)
-        context = character_context + self.get_memory_trimmed(tokens, chat_id) + "\n" + prompt_template
+        tokens = 2048 - len(prompt_template) - len(self.character_context)
+        context = self.character_context + self.get_memory_trimmed(tokens, chat_id) + "\n" + prompt_template
         return context
+    def delete_memory(self, chat_id):
+        User = Query()
+        self.memory.remove(User.chat_id == chat_id)
+    def get_memory(self, chat_id):
+        # get all memory for this chat id 
+        User = Query()
+        allChats = self.memory.search(User.chat_id == chat_id)
+        # loop through allChats and add to memory
+        memory = ""
+        #allChats.reverse()
+        for chat in allChats:
+            memory += chat['output'] + "\n"
+        return memory
     def get_memory_trimmed(self, max_tokens, chat_id):
         # get all memory for this chat id 
         User = Query()
@@ -146,8 +161,12 @@ Goblin:'''
         #    memory_trimmed = memory_trimmed[memory_trimmed.find("\n")+1:]
         return memory_trimmed   
     def unload(self):
+        if self.modelIsLoaded == False:
+            return
         if self.tokenizerName == "exllama":
-            self.model.unload()
+            #self.model.unload()
+            self.exllama_chatbot.unload()
         self.tokenizer = self.model = self.cache = self.generator = None
         gc.collect()
         torch.cuda.empty_cache()
+        self.modelIsLoaded = False
