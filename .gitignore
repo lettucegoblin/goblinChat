@@ -2,3 +2,6 @@ opt-125m-4bit/
 __pycache__/
 exllama/
 AutoGPTQ/
+memory.json
+.vscode/launch.json
+exllama
