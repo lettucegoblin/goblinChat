@@ -10,15 +10,19 @@ import asyncio
 from typing import Callable
 from datetime import datetime
 import random
-model_directory =  'Wizard-Vicuna-7B-Uncensored-GPTQ'
-mode_name = 'Wizard-Vicuna-7B-Uncensored-GPTQ-4bit-128g.no-act-order'
-TOKEN = '6051016268:AAGRaoNyLpveIMors1T9MwXCgahUVFiSVNk'
+import json
+
+with open('config.json') as json_file:
+    data = json.load(json_file)
+    TOKEN = data['token']
+    LIST_OF_ADMINS = data['list_of_admins'] # List of user_id of authorized users
+    model_directory = data['model_directory']
+    model_name = data['model_name']
+
 
 #autogptq_wrapper = Autogptq_Wrapper(model_directory,mode_name)
 #exllama_generator = Exllama_Generator()
-AI_Wrapper = Ai_Wrapper(model_directory,mode_name, "exllama")
-
-LIST_OF_ADMINS = [997001530, 5640466421, 190121446] # List of user_id of authorized users
+AI_Wrapper = Ai_Wrapper(model_directory,model_name, "exllama")
 
 bot = Bot(TOKEN)
 logging.basicConfig(

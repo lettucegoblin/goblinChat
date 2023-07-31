@@ -5,3 +5,7 @@ AutoGPTQ/
 memory.json
 .vscode/launch.json
 exllama
+venv/
+.vscode/launch.json
+config.json
+memory.json
